@@ -1,0 +1,121 @@
+{
+    "meta": {
+      "ip": "200.27.242.146",
+      "date": "2025-07-02 13:33:35",
+      "origin": "Sub-VoiceBot"
+    },
+    "data": {
+      "registro": "686578a632489309d06cf71f",
+      "id": "686578a632489309d06cf71a",
+      "nombre": "test multicob avon comp",
+      "rut": "12111",
+      "fono": "941475727",
+      "fecha": "2025-07-02",
+      "hora": "13:32:32",
+      "gestion": "Titular",
+      "subgestion": null,
+      "interes": "Sin interés",
+      "compromiso": "Compromiso",
+      "fecha_compromiso": "2025-07-03",
+      "observacion": "{\"box\":\"P08\"}",
+      "idproyect": "vnbLnzdM0b3BDClTPVPL",
+      "idcliente": "lEvxdkHyFXdOX4ieEMHs",
+      "agente": null,
+      "peso": 31,
+      "duration": 39,
+      "google_duration": 0,
+      "id_telefonia": "1748892742277",
+      "interactions": {
+        "agis": [
+          {
+            "agi": "Compromiso",
+            "client": "manana",
+            "observation": "Compromiso",
+            "branch": 101400,
+            "commitment_date": "2025-07-03"
+          },
+          {
+            "agi": "Interes",
+            "client": "no gracias",
+            "observation": "Sin interés",
+            "branch": 101900
+          }
+        ],
+        "audios_paths": [
+          "/mnt/vdb/filestore/BUZON/multicob/voicebot_records/avon/2025/07/02/20250702_133228_941475727_12111_multicob-avon-comp-unreal-amd.wav",
+          "/mnt/vdb/filestore/INTERACCION/multicob/voicebot_records/avon/2025/07/02/20250702_133228_941475727_12111_multicob-avon-comp-unreal-interaccion0.wav",
+          "/mnt/vdb/filestore/INTERACCION/multicob/voicebot_records/avon/2025/07/02/20250702_133228_941475727_12111_multicob-avon-comp-unreal-reconocimiento-vosk0.wav",
+          "/mnt/vdb/filestore/INTERACCION/multicob/voicebot_records/avon/2025/07/02/20250702_133228_941475727_12111_multicob-avon-comp-unreal-reconocimiento0.wav"
+        ],
+        "audios_segment": [
+          {
+            "start": "0:2",
+            "end": "0:4",
+            "model": "AMD"
+          },
+          {
+            "start": "0:10",
+            "end": "0:14",
+            "model": "Reconocimiento"
+          },
+          {
+            "start": "0:29",
+            "end": "0:33",
+            "model": "Compromiso"
+          },
+          {
+            "start": "0:36",
+            "end": "0:40",
+            "model": "Interes"
+          },
+          [
+            "/mnt/vdb/filestore/BUZON/multicob/voicebot_records/avon/2025/07/02/20250702_133228_941475727_12111_multicob-avon-comp-unreal-amd.wav",
+            "/mnt/vdb/filestore/INTERACCION/multicob/voicebot_records/avon/2025/07/02/20250702_133228_941475727_12111_multicob-avon-comp-unreal-interaccion0.wav",
+            "/mnt/vdb/filestore/INTERACCION/multicob/voicebot_records/avon/2025/07/02/20250702_133228_941475727_12111_multicob-avon-comp-unreal-reconocimiento-vosk0.wav",
+            "/mnt/vdb/filestore/INTERACCION/multicob/voicebot_records/avon/2025/07/02/20250702_133228_941475727_12111_multicob-avon-comp-unreal-reconocimiento0.wav"
+          ]
+        ],
+        "bt": [
+          {
+            "client": "si digame",
+            "coincidence": "si diga",
+            "branch": 1000
+          }
+        ],
+        "coordinates": [],
+        "server": "vsk-ast-prd160\n"
+      },
+      "responses": [
+        {
+          "agi": "Compromiso",
+          "client": "manana",
+          "observation": "Compromiso",
+          "branch": 101400,
+          "commitment_date": "2025-07-03"
+        },
+        {
+          "agi": "Interes",
+          "client": "no gracias",
+          "observation": "Sin interés",
+          "branch": 101900
+        }
+      ],
+      "uniqueid": "1751481137.5",
+      "url_record": "https://records.mibot.cl/records-mibot/multicob/voicebot_records/avon/2025/07/02/20250702_133228_941475727_12111_multicob-avon-comp-unreal.wav",
+      "url_record_bot": "voicebot_records/vnbLnzdM0b3BDClTPVPL/2025/07/02/20250702_133228_941475727_12111_multicob-avon-comp-unreal.mp3",
+      "time": "2025-07-02T14:32:32.000000-04:00",
+      "origin": "",
+      "url_webhook": "",
+      "idCallBack": "1751481137.5.12111.941475727",
+      "user_webhook": "",
+      "pass_webhook": "",
+      "headers_webhook": "",
+      "data": {
+        "monto": "2350.5",
+        "name": "josue ccanto vargas"
+      },
+      "idBot": "multicob-avon-comp-unreal",
+      "status_asterisk": "Normal Clearing",
+      "timezone": "America/Lima"
+    }
+  }
