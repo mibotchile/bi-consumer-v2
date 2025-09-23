@@ -267,7 +267,6 @@ def create_callback(inserter):
             print(record_to_insert)
 
             inserter.add(record_to_insert)
-            sys.exit(0)
             ch.basic_ack(delivery_tag=method.delivery_tag)
 
         except json.JSONDecodeError:
