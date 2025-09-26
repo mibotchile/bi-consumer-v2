@@ -2,7 +2,7 @@ CREATE TABLE public.voicebot_results (
     id bigserial NOT NULL, 
     campaign_id varchar(24) NOT NULL, -- data['id']
     campaign_name varchar(100) NOT NULL, -- data['nombre']
-    "document" varchar(50) NOT NULL, -- data['rut']
+    "document" varchar(20) NOT NULL, -- data['rut']
     phone varchar(15) NOT NULL, -- data['fono']
     "date" timestamp NOT NULL, -- data['fecha'] + data['hora'] (timezone)
     date_utc TIMESTAMPTZ NOT NULL, -- data['time'] (timezone UTC)

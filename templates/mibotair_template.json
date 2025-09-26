@@ -1,0 +1,40 @@
+{
+    "meta": {
+      "ip": "34.123.182.27",
+      "date": "2025-09-25",
+      "origin": "Mibot-Air",
+      "client_uid": "lEvxdkHyFXdOX4ieEMHs",
+      "project_uid": "vnbLnzdM0b3BDClTPVPL"
+    },
+    "data": {
+      "registro": 2042,
+      "id": 187658,
+      "nombre": "TEST PROGRESIVO 2",
+      "rut": "3A",
+      "fono": "15950000",
+      "fecha": "2025-09-25",
+      "hora": "15:55:37",
+      "gestion": "CONTACTO INDIRECTO",
+      "subgestion": "contacto_indirecto",
+      "idproyect": "vnbLnzdM0b3BDClTPVPL",
+      "idcliente": "lEvxdkHyFXdOX4ieEMHs",
+      "agente": "jose.rivasantequera_gmail.com",
+      "peso": 20,
+      "uniqueid": "1756914895.59",
+      "n1": "PRUEBA PALETA N1",
+      "n2": "PRUEBA PALETA 1 N2",
+      "n3": "OTRA N3",
+      "observacion": " (empty-call)",
+      "campos_adicionales": [ ],
+      "duracion": 0,
+      "id_gestion": 5016,
+      "url": null,
+      "fechahora": null,
+      "timezone": "America/Lima",
+      "correo_agente": "jose.rivasantequera@gmail.com",
+      "nombre_agente": "Jose Rivas prueba 2",
+      "fecha_compromiso": null,
+      "monto_compromiso": 0,
+      "id_telefonia": "35"
+    }
+  }

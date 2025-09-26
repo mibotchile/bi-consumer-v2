@@ -12,22 +12,30 @@ from psycopg2 import sql
 from psycopg2.extras import execute_values
 from dotenv import load_dotenv
 import pytz
+from zoneinfo import ZoneInfo
  
 load_dotenv() 
 RABBITMQ_URL = os.getenv("RABBITMQ_URL")
-RABBITMQ_QUEUE = os.getenv("RABBITMQ_QUEUE_VOICEBOT")
+RABBITMQ_QUEUE = os.getenv("RABBITMQ_QUEUE_MIBOTAIR")
 
 # Configuración de PostgreSQL
 POSTGRES_DSN = os.getenv("POSTGRES_DSN")
 DB_SCHEMA = os.getenv("DB_SCHEMA", "public") 
-DB_TABLE_NAME = "voicebot_results" 
+DB_TABLE_NAME = "mibotair_results" 
 
 # Configuración del Consumidor
-TARGET_ORIGIN = os.getenv("TARGET_ORIGIN_VOICEBOT")
+TARGET_ORIGIN = os.getenv("TARGET_ORIGIN_MIBOTAIR")
 BATCH_SIZE = int(os.getenv("BATCH_SIZE", 500)) #default 500
 BATCH_MAX_SECONDS = int(os.getenv("BATCH_MAX_SECONDS", 5)) #default 5
 
-DEFAULT_TIMEZONE = "America/Lima"
+DEFAULT_TIMEZONE = "America/Santiago"
+
+try:
+    CHILE_TZ = ZoneInfo("America/Santiago")
+    UTC_TZ = ZoneInfo("UTC")
+except ZoneInfoNotFoundError:
+    logger.critical("La base de datos de zonas horarias (tzdata) no está instalada. Ejecuta 'pip install tzdata'.")
+    sys.exit(1)
 
 # Validar que las variables esenciales existen
 if not all([RABBITMQ_URL, RABBITMQ_QUEUE, POSTGRES_DSN, TARGET_ORIGIN]):
@@ -39,13 +47,13 @@ def setup_logging():
     log_dir = "logs"
     if not os.path.exists(log_dir):
         os.makedirs(log_dir)
-    logger = logging.getLogger("consumer_logger_voicebot")
+    logger = logging.getLogger("consumer_logger_mibotair")
     log_level = logging.DEBUG if os.getenv("LOG_DEBUG_ACTIVE") == "true" else logging.INFO
     logger.setLevel(log_level)
      
     if not logger.handlers:
         handler = TimedRotatingFileHandler(
-            os.path.join(log_dir, "consumer_voicebot.log"), when="midnight", interval=1, backupCount=7
+            os.path.join(log_dir, "consumer_mibotair.log"), when="midnight", interval=1, backupCount=7
         )
         formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
         handler.setFormatter(formatter)
@@ -201,31 +209,17 @@ def create_callback(inserter):
                 logger.warning(f"Zona horaria no especificada, usando {DEFAULT_TIMEZONE}") 
                 timezone = DEFAULT_TIMEZONE
             
-            date_str_with_offset = data.get("time") # "2025-07-02T14:32:32.000000-04:00"
-            if not date_str_with_offset:
-                logger.error(f"Mensaje descartado: El campo 'time' es obligatorio. Mensaje: {body}")
-                ch.basic_ack(delivery_tag=method.delivery_tag)
-                return
-
             try: 
-                dt_object_aware = datetime.strptime(date_str_with_offset, "%Y-%m-%dT%H:%M:%S.%f%z") 
-                date_utc = dt_object_aware.astimezone(pytz.utc) 
-                target_timezone = pytz.timezone(timezone)
-                dt_in_target_tz = dt_object_aware.astimezone(target_timezone)
-                date_local_naive = dt_in_target_tz.replace(tzinfo=None) 
+                native_datetime_str = f"{data.get('fecha')} {data.get('hora')}"
+                native_dt = datetime.strptime(native_datetime_str, "%Y-%m-%d %H:%M:%S") 
+                dt_object_aware = native_dt.replace(tzinfo=CHILE_TZ)
+                date_utc = dt_object_aware.astimezone(ZoneInfo("UTC"))
+                date_local_native = native_dt 
             
             except (ValueError, pytz.UnknownTimeZoneError) as e:
                 logger.error(f"Error al parsear fechas o zona horaria: {e}. Mensaje: {body}")
                 ch.basic_ack(delivery_tag=method.delivery_tag)
-                return
-     
-            date_str = data.get("fecha")
-            time_str = data.get("hora") 
-            if date_str and time_str:
-                try:
-                    datetime.strptime(f"{date_str} {time_str}", "%Y-%m-%d %H:%M:%S")
-                except ValueError:
-                    logger.error(f"Formato de fecha/hora inválido: {date_str} {time_str}")
+                return  
  
             promise_date_str = data.get("fecha_compromiso")
             promise_date = None
@@ -235,32 +229,35 @@ def create_callback(inserter):
                 except (ValueError, TypeError):
                     logger.error(f"Formato de fecha de compromiso inválido: {promise_date_str}")
 
-            cleaned_observation = clean_json(data.get("observacion"))
+            cleaned_extra_data = clean_json(data.get("campos_adicionales"))
             record_to_insert = {
                 "campaign_id": data.get("id"),
                 "campaign_name": data.get("nombre"),
                 "document": data.get("rut"),
                 "phone": data.get("fono"),
-                "date": date_local_naive,
+                "date": date_local_native,
                 "date_utc": date_utc,
                 "timezone": timezone,
                 "management": data.get("gestion"),
                 "sub_management": data.get("subgestion"),
+                "management_id": data.get("id_gestion"),
                 "weight": data.get("peso"),
                 "promise_date": promise_date,
-                "interest": data.get("interes"),
-                "promise": data.get("compromiso"),
-                "observation": cleaned_observation,
+                "promise_amount": data.get("monto_compromiso") or 0, 
+                "observation": data.get("observacion")[:255],
                 "project_uid": data.get("idproyect"),
                 "client_uid": data.get("idcliente"),
-                "duration": data.get("duration"),
+                "duration": data.get("duration") or 0,
+                "telephony_id": data.get("id_telefonia") or 0,
+                "extra_data": cleaned_extra_data,
                 "uniqueid": data.get("uniqueid"),
-                "telephony_id": data.get("id_telefonia"),
-                "bot_extension": data.get("idBot"),
                 "url": data.get("url_record_bot"),
-                "interactions": clean_json(data.get("interactions", [])),
-                "responses": clean_json(data.get("responses", [])),
-                "id_record": data.get("registro"),
+                "id_record": data.get("registro") or 0,
+                "n1": data.get("n1")[:100],
+                "n2": data.get("n2")[:100],
+                "n3": data.get("n3")[:100],
+                "agent_name": data.get("nombre_agente"),
+                "agent_email": data.get("correo_agente"),
                 "created_at": datetime.now()
             } 
 
@@ -278,7 +275,6 @@ def create_callback(inserter):
             ch.basic_nack(delivery_tag=method.delivery_tag, requeue=True)
             
     return callback
-
  
 def main():
     """Inicia y gestiona el ciclo de vida del consumidor."""
@@ -300,8 +296,8 @@ def main():
         on_message_callback = create_callback(inserter)
         channel.basic_consume(queue=RABBITMQ_QUEUE, on_message_callback=on_message_callback, auto_ack=False)
 
-        logger.info(f"Consumidor VoiceBot listo. Escuchando en '{RABBITMQ_QUEUE}'.")
-        print(f"\n✅ Consumidor VoiceBot activo, listo para recibir mensajes.")
+        logger.info(f"Consumidor MibotAir listo. Escuchando en '{RABBITMQ_QUEUE}'.")
+        print(f"\n✅ Consumidor MibotAir activo, listo para recibir mensajes.")
         print(f"   - Cola: '{RABBITMQ_QUEUE}'")
         print(f"   - Lotes de {BATCH_SIZE} registros o cada {BATCH_MAX_SECONDS} segundos.")
         print("   - Presiona CTRL+C para detener.\n")
