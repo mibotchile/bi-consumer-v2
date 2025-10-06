@@ -230,6 +230,10 @@ def create_callback(inserter):
                     logger.error(f"Formato de fecha de compromiso inválido: {promise_date_str}")
 
             cleaned_extra_data = clean_json(data.get("campos_adicionales"))
+            n1_value = data.get("n1")
+            n2_value = data.get("n2")
+            n3_value = data.get("n3")
+
             record_to_insert = {
                 "campaign_id": data.get("id"),
                 "campaign_name": data.get("nombre"),
