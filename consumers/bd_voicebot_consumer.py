@@ -4,7 +4,7 @@ import json
 import logging
 import time
 from datetime import datetime
-from logging.handlers import TimedRotatingFileHandler
+from logging.handlers import WatchedFileHandler
 
 import pika
 import psycopg2
@@ -44,8 +44,8 @@ def setup_logging():
     logger.setLevel(log_level)
      
     if not logger.handlers:
-        handler = TimedRotatingFileHandler(
-            os.path.join(log_dir, "consumer_voicebot.log"), when="midnight", interval=1, backupCount=7
+        handler = WatchedFileHandler(
+            os.path.join(log_dir, "consumer_mibotair.log")
         )
         formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
         handler.setFormatter(formatter)
@@ -264,7 +264,7 @@ def create_callback(inserter):
                 "created_at": datetime.now()
             } 
 
-            print(record_to_insert)
+            print(record_to_insert.get("client_uid"), "|", record_to_insert.get("project_uid"),"|", record_to_insert.get("document"), "|", record_to_insert.get("date"), "|", record_to_insert.get("management"))
 
             inserter.add(record_to_insert)
             ch.basic_ack(delivery_tag=method.delivery_tag)

@@ -266,6 +266,7 @@ def create_callback(inserter):
             } 
 
             #print(record_to_insert)
+            print(record_to_insert.get("client_uid"), "|", record_to_insert.get("project_uid"),"|", record_to_insert.get("document"), "|", record_to_insert.get("date"), "|", record_to_insert.get("management_id"),"|", record_to_insert.get("n3"))
 
             inserter.add(record_to_insert)
             ch.basic_ack(delivery_tag=method.delivery_tag)
