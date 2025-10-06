@@ -52,8 +52,8 @@ def setup_logging():
     logger.setLevel(log_level)
      
     if not logger.handlers:
-        handler = TimedRotatingFileHandler(
-            os.path.join(log_dir, "consumer_mibotair.log"), when="midnight", interval=1, backupCount=7
+        handler = WatchedFileHandler(
+            os.path.join(log_dir, "consumer_mibotair.log")
         )
         formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
         handler.setFormatter(formatter)
@@ -196,6 +196,7 @@ def create_callback(inserter):
         try:
             message = json.loads(body)
             data = message.get("data", {})
+             
             meta = message.get("meta", {})
   
             # --- Aquí va tu lógica de validación y parseo del mensaje ---
