@@ -195,8 +195,7 @@ def create_callback(inserter):
         
         try:
             message = json.loads(body)
-            data = message.get("data", {})
-             
+            data = message.get("data", {})  
             meta = message.get("meta", {})
   
             # --- Aquí va tu lógica de validación y parseo del mensaje ---
@@ -249,7 +248,7 @@ def create_callback(inserter):
                 "weight": data.get("peso") or -9999,
                 "promise_date": promise_date,
                 "promise_amount": data.get("monto_compromiso") or 0, 
-                "observation": data.get("observacion")[:255],
+                "observation": data.get("observacion")[:255] if data.get("observacion") else "",
                 "project_uid": data.get("idproyect"),
                 "client_uid": data.get("idcliente"),
                 "duration": data.get("duration") or 0,
@@ -266,7 +265,7 @@ def create_callback(inserter):
                 "created_at": datetime.now()
             } 
 
-            print(record_to_insert)
+            #print(record_to_insert)
 
             inserter.add(record_to_insert)
             ch.basic_ack(delivery_tag=method.delivery_tag)
