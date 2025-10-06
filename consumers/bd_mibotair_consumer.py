@@ -253,9 +253,9 @@ def create_callback(inserter):
                 "uniqueid": data.get("uniqueid"),
                 "url": data.get("url_record_bot"),
                 "id_record": data.get("registro") or 0,
-                "n1": data.get("n1")[:100],
-                "n2": data.get("n2")[:100],
-                "n3": data.get("n3")[:100],
+                "n1": n1_value[:100] if n1_value else None,
+                "n2": n2_value[:100] if n2_value else None,
+                "n3": n3_value[:100] if n3_value else None,
                 "agent_name": data.get("nombre_agente"),
                 "agent_email": data.get("correo_agente"),
                 "created_at": datetime.now()
