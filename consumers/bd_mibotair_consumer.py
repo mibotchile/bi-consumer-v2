@@ -4,7 +4,7 @@ import json
 import logging
 import time
 from datetime import datetime
-from logging.handlers import TimedRotatingFileHandler
+from logging.handlers import WatchedFileHandler 
 
 import pika
 import psycopg2
