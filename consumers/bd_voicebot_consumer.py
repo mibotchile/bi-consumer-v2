@@ -45,7 +45,7 @@ def setup_logging():
      
     if not logger.handlers:
         handler = WatchedFileHandler(
-            os.path.join(log_dir, "consumer_mibotair.log")
+            os.path.join(log_dir, "consumer_voicebot.log")
         )
         formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
         handler.setFormatter(formatter)
@@ -207,8 +207,8 @@ def create_callback(inserter):
                 ch.basic_ack(delivery_tag=method.delivery_tag)
                 return
 
-            try: 
-                dt_object_aware = datetime.strptime(date_str_with_offset, "%Y-%m-%dT%H:%M:%S.%f%z") 
+            try:  
+                dt_object_aware = datetime.fromisoformat(date_str_with_offset) 
                 date_utc = dt_object_aware.astimezone(pytz.utc) 
                 target_timezone = pytz.timezone(timezone)
                 dt_in_target_tz = dt_object_aware.astimezone(target_timezone)
