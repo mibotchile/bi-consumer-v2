@@ -213,7 +213,7 @@ def create_callback(loader):
  
             promise_date_str = data.get("fecha_compromiso")
             promise_date = None
-            if promise_date_str:
+            if promise_date_str and promise_date_str != "Invalid date":
                 try:
                     promise_date = datetime.strptime(promise_date_str, "%Y-%m-%d")
                 except (ValueError, TypeError):
@@ -248,7 +248,7 @@ def create_callback(loader):
                 "created_at": datetime.now()
             } 
 
-            print(f"Adding: {record_to_insert.get('client_uid')} | {record_to_insert.get('date')}")
+            #print(f"Adding: {record_to_insert.get('client_uid')} | {record_to_insert.get('date')}")
 
             loader.add(record_to_insert)
             ch.basic_ack(delivery_tag=method.delivery_tag)
