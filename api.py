@@ -181,6 +181,6 @@ def check_doris_status(target: str):
 
 if __name__ == "__main__":
     import uvicorn
-    http_port = os.getenv("API_PORT",80)
+    http_port = int(os.getenv("API_PORT",80))
     api_host = os.getenv("API_HOST", "0.0.0.0")
     uvicorn.run(app, host=api_host, port=http_port)
