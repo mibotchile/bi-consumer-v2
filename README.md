@@ -66,3 +66,10 @@ sudo systemctl stop bi-healthcheck
 sudo systemctl status bi-healthcheck
 # ver logs
 sudo journalctl -u bi-healthcheck -f
+
+
+#check healt service
+http://localhost:8000/health/doris/general
+http://localhost:8000/health/doris/mibotair_results
+http://localhost:8000/health/doris/voicebot_results
+http://localhost:8000/health/doris/mail_results

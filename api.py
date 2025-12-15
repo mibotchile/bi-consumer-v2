@@ -87,9 +87,7 @@ def run_stream_load_check(table_name):
         "date": datetime.now().strftime("%Y-%m-%d %H:%M:%S"), 
         "client_uid": "HEALTHCHECK_API",
         "project_uid": "HEALTHCHECK_API",
-        "document": "9999999",
-        "observation": "API Healthcheck - Should be aborted",
-        "campaign_id": 0
+        "document": "9999999"
     }]
 
     log_pasos = []
@@ -171,7 +169,7 @@ def check_doris_status(target: str):
     if target.lower() == "general":
         return get_cluster_health()
     
-    elif target in ["mibotair_results", "voicebot_results"]:
+    elif target in ["mibotair_results", "voicebot_results", "mail_results"]:
         return run_stream_load_check(target)
     
     else:
