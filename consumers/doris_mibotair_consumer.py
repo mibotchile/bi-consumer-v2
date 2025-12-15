@@ -294,12 +294,27 @@ def main():
             connection.process_data_events(time_limit=1)
             loader.flush_if_needed()
 
+    except KeyboardInterrupt: 
+        print("\n\n🛑 Detención solicitada por usuario...")
+
     except Exception as e:
         logger.error(f"Error Fatal: {e}")
-    finally:
-        if connection and connection.is_open:
-            connection.close()
-        loader.close()
+    finally: 
+        print("   -> Cerrando conexiones y vaciando buffers...", end="")
+        try:
+            if connection and connection.is_open:
+                connection.close()
+        except:
+            pass
+
+        try:
+            loader.close()
+        except Exception as e:
+            logger.warning(f"No se pudo guardar el último lote al salir: {e}")
+
+        print(" [OK]")
+        print("👋 Consumidor detenido.") 
+        sys.exit(0)
 
 if __name__ == '__main__':
     main()
