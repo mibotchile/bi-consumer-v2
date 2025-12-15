@@ -26,8 +26,8 @@ DORIS_USER = os.getenv("DORIS_USER", "root")
 DORIS_PASSWORD = os.getenv("DORIS_PASSWORD", "")
 
 TARGET_ORIGIN = os.getenv("TARGET_ORIGIN_MIBOTAIR")
-BATCH_SIZE = int(os.getenv("BATCH_SIZE", 5000)) 
-BATCH_MAX_SECONDS = int(os.getenv("BATCH_MAX_SECONDS", 10))
+BATCH_SIZE = int(os.getenv("BATCH_SIZE_MIBOTAIR", 500)) 
+BATCH_MAX_SECONDS = int(os.getenv("BATCH_MAX_SECONDS_MIBOTAIR", 10))
 
 DEFAULT_TIMEZONE = "America/Santiago"
 

@@ -31,8 +31,8 @@ FIREBASE_KEY = os.getenv("FIREBASE_KEY")
 AIM_API_URL = "https://apiaim.mibot.cl/v3/clients"
 
 TARGET_ORIGIN = os.getenv("TARGET_ORIGIN_EMAIL", "Email")
-BATCH_SIZE = int(os.getenv("BATCH_SIZE", 500))
-BATCH_MAX_SECONDS = int(os.getenv("BATCH_MAX_SECONDS", 5))
+BATCH_SIZE = int(os.getenv("BATCH_SIZE_EMAIL", 500))
+BATCH_MAX_SECONDS = int(os.getenv("BATCH_MAX_SECONDS_EMAIL", 5))
 
 def setup_logging():
     log_dir = "logs"
