@@ -1,0 +1,30 @@
+{
+    "meta": {
+        "ip": "34.135.91.102",
+        "date": "2025-12-15 21:25:57",
+        "origin": "Email",
+        "client_uid": "",
+        "project_uid": "k6tiApiXFopyWZMTzxWO"
+    },
+    "data": {
+        "data": {
+            "category": [
+                "69404f3ba2e69f3585ea1037",
+                "k6tiApiXFopyWZMTzxWO",
+                "15360148-8"
+            ],
+            "email": "yari_angelito@hotmail.com",
+            "event": "delivered",
+            "ip": "149.72.222.190",
+            "response": "250 2.6.0 <QWl_E4YjTtWPU-SdInrjPQ@geopod-ismtpd-67> [InternalId=105080669875928, Hostname=MW4PR12MB5641.namprd12.prod.outlook.com] 48203 bytes in 0.253, 185.721 KB/sec Queued mail for delivery -> 250 2.1.5",
+            "sg_event_id": "ZGVsaXZlcmVkLTAtNDY1MjExNDItUVdsX0U0WWpUdFdQVS1TZElucmpQUS0w",
+            "sg_message_id": "QWl_E4YjTtWPU-SdInrjPQ.recvd-59f8db56c-9qdpq-1-69407C51-8D.0",
+            "smtp-id": "<QWl_E4YjTtWPU-SdInrjPQ@geopod-ismtpd-67>",
+            "timestamp": 1765833810,
+            "tls": 1
+        },
+        "campaign_id": "69404f3ba2e69f3585ea1037",
+        "project": "k6tiApiXFopyWZMTzxWO",
+        "document": "15360148-8"
+    }
+}
