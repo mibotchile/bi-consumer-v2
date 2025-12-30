@@ -198,6 +198,11 @@ def create_callback(loader):
                 target_timezone = pytz.timezone(timezone)
                 dt_in_target_tz = dt_object_aware.astimezone(target_timezone)
                 date_local_naive = dt_in_target_tz.replace(tzinfo=None) 
+
+                if date_local_naive.year < 2020:
+                    logger.warning(f"Fecha anómala detectada ({date_local_naive}). Usando fecha actual.")
+                    date_local_naive = datetime.now()
+                
             except (ValueError, pytz.UnknownTimeZoneError) as e:
                 logger.error(f"Error fechas/tz: {e}. Msg: {body}")
                 ch.basic_ack(delivery_tag=method.delivery_tag)
