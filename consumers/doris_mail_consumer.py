@@ -7,7 +7,9 @@ import base64
 import uuid
 import requests
 from datetime import datetime
-from logging.handlers import WatchedFileHandler
+from logging.handlers import WatchedFileHandler, TimedRotatingFileHandler
+from requests.adapters import HTTPAdapter 
+from urllib3.util.retry import Retry 
 
 import pika
 from dotenv import load_dotenv
@@ -34,6 +36,7 @@ TARGET_ORIGIN = os.getenv("TARGET_ORIGIN_EMAIL", "Email")
 BATCH_SIZE = int(os.getenv("BATCH_SIZE_EMAIL", 500))
 BATCH_MAX_SECONDS = int(os.getenv("BATCH_MAX_SECONDS_EMAIL", 5))
 
+# --- LOGGERS ---
 def setup_logging():
     log_dir = "logs"
     if not os.path.exists(log_dir):
@@ -52,13 +55,38 @@ def setup_logging():
     logger.addHandler(stream_handler)
     return logger
 
-logger = setup_logging()
+def setup_raw_data_logger():
+    """
+    SEGURIDAD NIVEL 1: La Caja Negra.
+    Guarda el mensaje crudo de RabbitMQ en un archivo diario.
+    Si Doris explota y hay que truncar, se recupera desde aquí.
+    """
+    raw_logger = logging.getLogger("raw_data_saver_email")
+    raw_logger.setLevel(logging.INFO)
+    raw_logger.propagate = False # No mostrar en consola
+    
+    os.makedirs("raw_data_archive", exist_ok=True)
+    
+    # Rota cada medianoche, guarda 31 días de historia
+    handler = TimedRotatingFileHandler(
+        "raw_data_archive/email_backup.jsonl",
+        when="midnight",
+        interval=1,
+        backupCount=31,
+        encoding="utf-8"
+    )
+    
+    formatter = logging.Formatter('%(message)s')
+    handler.setFormatter(formatter)
+    raw_logger.addHandler(handler)
+    return raw_logger
 
-# --- CLASE HELPER PARA CACHE DE PROYECTOS ---
+logger = setup_logging()
+raw_data_logger = setup_raw_data_logger()
+ 
 class ProjectCache:
     """
     Descarga la estructura de Clientes/Cuentas/Proyectos al inicio
-    y permite buscar client_uid y timezone dado un project_uid.
     """
     def __init__(self):
         self.cache = {} 
@@ -123,7 +151,7 @@ class ProjectCache:
     def get_info(self, project_uid):
         return self.cache.get(project_uid, {"client_uid": "UNKNOWN", "timezone": "UTC"})
 
-# --- DORIS STREAM LOADER (Reutilizable) ---
+# --- DORIS STREAM LOADER BLINDADO ---
 class DateTimeEncoder(json.JSONEncoder):
     def default(self, obj):
         if isinstance(obj, datetime):
@@ -140,10 +168,22 @@ class DorisStreamLoader:
         self.buffer = []
         self.last_flush_time = time.time()
         
+        # --- SEGURIDAD NIVEL 3: Red Robusta ---
+        self.session = requests.Session()
+        # Reintentar 3 veces si hay error 500, 502, etc. Esperar 1s, 2s, 4s...
+        retries = Retry(total=3, backoff_factor=1, status_forcelist=[500, 502, 503, 504])
+        self.session.mount('http://', HTTPAdapter(max_retries=retries))
+        
+        # Auth Pre-calculada
+        auth_str = f"{self.user}:{self.password}"
+        b64_auth = base64.b64encode(auth_str.encode()).decode()
+
         self.headers = {
             "format": "json",
             "strip_outer_array": "true",
-            "Expect": "100-continue"
+            "Expect": "100-continue",
+            "Authorization": f"Basic {b64_auth}",
+            "enable_proxy": "true" 
         }
 
     def add(self, record):
@@ -155,27 +195,46 @@ class DorisStreamLoader:
         if self.buffer and (time.time() - self.last_flush_time > self.max_seconds):
             self.flush()
 
+    def save_to_disk(self, json_payload, reason):
+        """
+        SEGURIDAD NIVEL 2: El Salvavidas.
+        Si Doris rechaza el dato, se guarda aquí para reinyectar luego.
+        """
+        try:
+            filename = f"failed_loads/email_{int(time.time())}_{uuid.uuid4()}.json"
+            os.makedirs("failed_loads", exist_ok=True)
+            with open(filename, "w", encoding="utf-8") as f:
+                f.write(json_payload)
+            logger.error(f"⚠️ FALLO DORIS. DATOS SALVADOS EN DISCO: {filename}. Razón: {reason}")
+            return True
+        except Exception as e:
+            logger.critical(f"🔥 FALLO TOTAL (Doris y Disco): {e}")
+            return False
+
     def flush(self):
         if not self.buffer: return True
         
+        json_payload = ""
         try:
             json_payload = json.dumps(self.buffer, cls=DateTimeEncoder)
             label = f"email_{int(time.time()*1000)}_{len(self.buffer)}"
             headers = self.headers.copy()
             headers["label"] = label
 
-            response = requests.put(
+            # Usamos session.put con timeout
+            response = self.session.put(
                 self.load_url, data=json_payload, headers=headers,
-                auth=(self.user, self.password), allow_redirects=False 
+                allow_redirects=False, timeout=60
             )
 
             final_response = response
 
+            # Manejo manual de redirección si enable_proxy es ignorado
             if response.status_code == 307:
-                final_response = requests.put(
+                final_response = self.session.put(
                     response.headers.get("Location"),
                     data=json_payload, headers=headers,
-                    auth=(self.user, self.password), allow_redirects=True
+                    allow_redirects=True, timeout=60
                 )
             
             resp_dict = final_response.json()
@@ -186,12 +245,22 @@ class DorisStreamLoader:
                 self.last_flush_time = time.time()
                 return True
             else:
-                logger.error(f"Doris Load Failed: {resp_dict}")
-                return False
+                # Falló Doris (lógica o tabla rota) -> Guardar en disco
+                error_msg = resp_dict.get('Message', 'Unknown Error')
+                self.save_to_disk(json_payload, error_msg)
+                
+                self.buffer.clear()
+                self.last_flush_time = time.time()
+                return True # Mentimos a RabbitMQ porque ya está en disco
 
         except Exception as e:
-            logger.error(f"Error crítico enviando a Doris: {e}")
-            return False
+            # Falló Red/Python -> Guardar en disco
+            logger.error(f"Error de conexión/código: {e}")
+            self.save_to_disk(json_payload, str(e))
+            
+            self.buffer.clear()
+            self.last_flush_time = time.time()
+            return True # Mentimos a RabbitMQ porque ya está en disco
             
     def close(self):
         self.flush()
@@ -210,16 +279,22 @@ def create_callback(loader, project_cache):
 
     def callback(ch, method, properties, body):
         try:
+            # A) SEGURIDAD NIVEL 1: Guardado inmediato del RAW
+            try:
+                raw_data_logger.info(body.decode('utf-8'))
+            except Exception as e:
+                logger.error(f"No se pudo escribir en raw log: {e}")
+
+            # B) Procesamiento Normal
             message = json.loads(body)
             meta = message.get("meta", {})
             
             if meta.get("origin") != TARGET_ORIGIN:
-                # logger.warning(f"Ignorado: {meta.get('origin')}") 
                 ch.basic_ack(delivery_tag=method.delivery_tag)
                 return
 
             root_data = message.get("data", {})
-            detail_data = root_data.get("data", {}) # Aquí está timestamp, email, etc.
+            detail_data = root_data.get("data", {})
             
             project_uid = root_data.get("project")
             
@@ -234,12 +309,11 @@ def create_callback(loader, project_cache):
             
             if ts_value:
                 date_utc = datetime.fromtimestamp(ts_value, pytz.utc)
-                
                 try:
                     target_tz = pytz.timezone(timezone_str)
-                    date_local = date_utc.astimezone(target_tz).replace(tzinfo=None) # Naive para Doris
+                    date_local = date_utc.astimezone(target_tz).replace(tzinfo=None)
                 except:
-                    date_local = date_utc.replace(tzinfo=None) # Fallback a UTC sin info
+                    date_local = date_utc.replace(tzinfo=None)
             else:
                 date_utc = datetime.now(pytz.utc)
                 date_local = datetime.now()
@@ -268,14 +342,12 @@ def create_callback(loader, project_cache):
                 "created_at": datetime.now()
             }
             
-            # Debug visual (opcional)
-            # print(f"Email: {record['email']} | Event: {record['event']} | Client: {client_uid}")
-
             loader.add(record)
             ch.basic_ack(delivery_tag=method.delivery_tag)
 
         except json.JSONDecodeError:
             logger.error("JSON inválido")
+            # Raw logger ya lo guardó, así que podemos descartar
             ch.basic_ack(delivery_tag=method.delivery_tag)
         except Exception as e:
             logger.error(f"Error procesando email: {e}")
@@ -303,16 +375,13 @@ def main():
         channel = connection.channel()
         channel.queue_declare(queue=RABBITMQ_QUEUE, durable=True)
         channel.basic_qos(prefetch_count=BATCH_SIZE)
-
-        # Pasamos el cache al callback
+ 
         on_message_callback = create_callback(loader, project_cache)
         
         channel.basic_consume(queue=RABBITMQ_QUEUE, on_message_callback=on_message_callback, auto_ack=False)
 
         logger.info(f"Consumidor Email Doris iniciado. Cola: {RABBITMQ_QUEUE}")
         print(f"\n✅ Consumidor EMAIL activo.")
-        print(f"   - Cola: '{RABBITMQ_QUEUE}'")
-        print(f"   - Cache: Cargado en memoria.")
         
         while True: 
             connection.process_data_events(time_limit=1)
@@ -322,7 +391,7 @@ def main():
         print("\n\n🛑 Detención solicitada por usuario...")
 
     except Exception as e:
-        logger.error(f"Error Fatal: {e}")
+        logger.critical(f"Error Fatal: {e}")
     finally: 
         print("   -> Cerrando conexiones y vaciando buffers...", end="")
         try:

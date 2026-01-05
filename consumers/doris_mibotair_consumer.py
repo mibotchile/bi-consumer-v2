@@ -119,7 +119,8 @@ class DorisStreamLoader:
                 data=json_payload,
                 headers=headers,
                 auth=(self.user, self.password),
-                allow_redirects=False
+                allow_redirects=False,
+                timeout=60
             )
 
             final_response = response
@@ -132,7 +133,8 @@ class DorisStreamLoader:
                     data=json_payload,
                     headers=headers,
                     auth=(self.user, self.password),
-                    allow_redirects=True
+                    allow_redirects=True,
+                    timeout=60
                 )
             
             try:
