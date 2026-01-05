@@ -7,7 +7,9 @@ import base64
 import uuid
 import requests
 from datetime import datetime, date
-from logging.handlers import WatchedFileHandler
+from logging.handlers import WatchedFileHandler, TimedRotatingFileHandler
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 
 import pika
 from dotenv import load_dotenv
@@ -34,27 +36,51 @@ if not all([RABBITMQ_URL, RABBITMQ_QUEUE, TARGET_ORIGIN, DORIS_HOST, DORIS_USER]
     print("Error: Faltan variables de entorno esenciales (.env)")
     sys.exit(1)
 
-# --- Logging ---
+# --- LOGGERS ---
 def setup_logging():
     log_dir = "logs"
     if not os.path.exists(log_dir):
         os.makedirs(log_dir)
     logger = logging.getLogger("consumer_doris_voicebot")
-    log_level = logging.DEBUG if os.getenv("LOG_DEBUG_ACTIVE") == "true" else logging.INFO
-    logger.setLevel(log_level)
-     
-    if not logger.handlers:
-        handler = WatchedFileHandler(os.path.join(log_dir, "consumer_voicebot.log"))
-        formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-        handler.setFormatter(formatter)
-        logger.addHandler(handler)
-        
-        stream_handler = logging.StreamHandler()
-        stream_handler.setFormatter(formatter)
-        logger.addHandler(stream_handler)
+    logger.setLevel(logging.INFO)
+    
+    formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+    
+    file_handler = WatchedFileHandler(os.path.join(log_dir, "consumer_voicebot.log"))
+    file_handler.setFormatter(formatter)
+    logger.addHandler(file_handler)
+    
+    stream_handler = logging.StreamHandler()
+    stream_handler.setFormatter(formatter)
+    logger.addHandler(stream_handler)
     return logger
 
+def setup_raw_data_logger():
+    """
+    SEGURIDAD NIVEL 1: La Caja Negra.
+    Guarda el mensaje crudo de RabbitMQ en un archivo diario.
+    """
+    raw_logger = logging.getLogger("raw_data_saver_voicebot")
+    raw_logger.setLevel(logging.INFO)
+    raw_logger.propagate = False 
+    
+    os.makedirs("raw_data_archive", exist_ok=True)
+    
+    handler = TimedRotatingFileHandler(
+        "raw_data_archive/voicebot_backup.jsonl",
+        when="midnight",
+        interval=1,
+        backupCount=90,
+        encoding="utf-8"
+    )
+    
+    formatter = logging.Formatter('%(message)s')
+    handler.setFormatter(formatter)
+    raw_logger.addHandler(handler)
+    return raw_logger
+
 logger = setup_logging()
+raw_data_logger = setup_raw_data_logger()
 
 # --- Encoder para Fechas en JSON ---
 class DateTimeEncoder(json.JSONEncoder):
@@ -63,7 +89,7 @@ class DateTimeEncoder(json.JSONEncoder):
             return obj.isoformat()
         return super(DateTimeEncoder, self).default(obj)
 
-# --- CLASE DE CARGA A DORIS (Optimizada con Redirección Manual) ---
+# --- DORIS STREAM LOADER BLINDADO ---
 class DorisStreamLoader:
     def __init__(self, host, port, db, table, user, password, batch_size, max_seconds):
         self.load_url = f"http://{host}:{port}/api/{db}/{table}/_stream_load"
@@ -74,11 +100,21 @@ class DorisStreamLoader:
         self.buffer = []
         self.last_flush_time = time.time()
         
-        # Headers base para Doris
+        # --- SEGURIDAD NIVEL 3: Red Robusta ---
+        self.session = requests.Session()
+        retries = Retry(total=3, backoff_factor=1, status_forcelist=[500, 502, 503, 504])
+        self.session.mount('http://', HTTPAdapter(max_retries=retries))
+        
+        # Auth Pre-calculada
+        auth_str = f"{self.user}:{self.password}"
+        b64_auth = base64.b64encode(auth_str.encode()).decode()
+
         self.headers = {
             "format": "json",
             "strip_outer_array": "true",
-            "Expect": "100-continue"
+            "Expect": "100-continue",
+            "Authorization": f"Basic {b64_auth}",
+            "enable_proxy": "true"
         }
 
     def add(self, record):
@@ -90,24 +126,38 @@ class DorisStreamLoader:
         if self.buffer and (time.time() - self.last_flush_time > self.max_seconds):
             self.flush()
 
+    def save_to_disk(self, json_payload, reason):
+        """
+        SEGURIDAD NIVEL 2: El Salvavidas.
+        Si Doris rechaza el dato, se guarda aquí.
+        """
+        try:
+            filename = f"failed_loads/voicebot_{int(time.time())}_{uuid.uuid4()}.json"
+            os.makedirs("failed_loads", exist_ok=True)
+            with open(filename, "w", encoding="utf-8") as f:
+                f.write(json_payload)
+            logger.error(f"⚠️ FALLO DORIS. DATOS SALVADOS EN DISCO: {filename}. Razón: {reason}")
+            return True
+        except Exception as e:
+            logger.critical(f"🔥 FALLO TOTAL (Doris y Disco): {e}")
+            return False
+
     def flush(self):
         if not self.buffer:
             return True
 
-        record_count = len(self.buffer)
-        
+        json_payload = ""
         try:
             json_payload = json.dumps(self.buffer, cls=DateTimeEncoder)
-            label = f"voicebot_{int(time.time()*1000)}_{record_count}"
-            
+            label = f"voicebot_{int(time.time()*1000)}_{len(self.buffer)}"
             headers = self.headers.copy()
             headers["label"] = label
 
-            response = requests.put(
+            # Usamos session.put con timeout
+            response = self.session.put(
                 self.load_url,
                 data=json_payload,
                 headers=headers,
-                auth=(self.user, self.password),
                 allow_redirects=False,
                 timeout=60
             )
@@ -115,22 +165,15 @@ class DorisStreamLoader:
             final_response = response
 
             if response.status_code == 307:
-                backend_url = response.headers.get("Location")
-                
-                final_response = requests.put(
-                    backend_url,
+                final_response = self.session.put(
+                    response.headers.get("Location"),
                     data=json_payload,
                     headers=headers,
-                    auth=(self.user, self.password), # Re-inyectamos credenciales
                     allow_redirects=True,
                     timeout=60
                 )
             
-            try:
-                resp_dict = final_response.json()
-            except:
-                logger.error(f"Error respuesta no-JSON de Doris: {final_response.text}")
-                return False
+            resp_dict = final_response.json()
 
             if resp_dict.get("Status") == "Success":
                 logger.info(f"Doris Load OK. Label: {label}. Loaded: {resp_dict.get('NumberLoadedRows')}")
@@ -138,29 +181,33 @@ class DorisStreamLoader:
                 self.last_flush_time = time.time()
                 return True
             else:
-                logger.error(f"Doris Load Failed: {resp_dict}")
-                logger.error(f"Error URL: {resp_dict.get('ErrorURL')}")
-                return False
+                # Falló Doris (lógica o tabla rota) -> Guardar en disco
+                error_msg = resp_dict.get('Message', 'Unknown Error')
+                self.save_to_disk(json_payload, error_msg)
+                
+                self.buffer.clear()
+                self.last_flush_time = time.time()
+                return True # Mentimos a RabbitMQ
 
         except Exception as e:
-            logger.error(f"Error crítico enviando a Doris: {e}")
-            return False
+            # Falló Red/Python -> Guardar en disco
+            logger.error(f"Error de conexión/código: {e}")
+            self.save_to_disk(json_payload, str(e))
+            
+            self.buffer.clear()
+            self.last_flush_time = time.time()
+            return True # Mentimos a RabbitMQ
 
     def close(self):
         self.flush()
 
-# --- Lógica del Callback de RabbitMQ ---
+# --- Callbacks RabbitMQ ---
 def create_callback(loader):
     def callback(ch, method, properties, body):
         
         def clean_json(raw_value):
-            """
-            Limpia JSONs. Para Doris, devolvemos el Objeto (Dict/List),
-            NO el string, para que se guarde como tipo JSON nativo.
-            """
-            if not raw_value:
-                return None
-
+            if not raw_value: return None
+            
             current_value = raw_value
             while isinstance(current_value, str):
                 try:
@@ -170,22 +217,26 @@ def create_callback(loader):
             
             if isinstance(current_value, (dict, list)):
                 return current_value
-            
             return None 
         
         try:
+            # A) SEGURIDAD NIVEL 1: Guardado inmediato del RAW
+            try:
+                raw_data_logger.info(body.decode('utf-8'))
+            except Exception as e:
+                logger.error(f"No se pudo escribir en raw log: {e}")
+
+            # B) Procesamiento Normal
             message = json.loads(body)
             data = message.get("data", {})
             meta = message.get("meta", {})
   
             if meta.get("origin") != TARGET_ORIGIN:
-                logger.warning(f"Mensaje ignorado (origen no coincide): {meta.get('origin')}")
                 ch.basic_ack(delivery_tag=method.delivery_tag)
                 return
 
-            timezone = data.get("timezone")
+            timezone = data.get("timezone", DEFAULT_TIMEZONE)
             if not timezone:
-                logger.warning(f"Zona horaria no especificada, usando {DEFAULT_TIMEZONE}") 
                 timezone = DEFAULT_TIMEZONE
             
             date_str_with_offset = data.get("time") 
@@ -224,7 +275,7 @@ def create_callback(loader):
                 try:
                     promise_date = datetime.strptime(promise_date_str, "%Y-%m-%d")
                 except (ValueError, TypeError):
-                    logger.error(f"Fecha compromiso inválida: {promise_date_str}")
+                    logger.warning(f"Fecha compromiso inválida: {promise_date_str}")
 
             record_to_insert = {
                 "uid": str(uuid.uuid4()),
@@ -255,8 +306,6 @@ def create_callback(loader):
                 "created_at": datetime.now()
             } 
 
-            #print(f"Adding: {record_to_insert.get('client_uid')} | {record_to_insert.get('date')}")
-
             loader.add(record_to_insert)
             ch.basic_ack(delivery_tag=method.delivery_tag)
 
@@ -264,7 +313,7 @@ def create_callback(loader):
             logger.error("JSON inválido.")
             ch.basic_ack(delivery_tag=method.delivery_tag)
         except Exception as e:
-            logger.critical(f"Error inesperado: {e}", exc_info=True)
+            logger.error(f"Error procesando voz: {e}")
             ch.basic_nack(delivery_tag=method.delivery_tag, requeue=True)
             
     return callback
@@ -293,7 +342,6 @@ def main():
 
         logger.info(f"Consumidor VoiceBot Doris iniciado. Cola: {RABBITMQ_QUEUE}")
         print(f"\n✅ Consumidor VoiceBot Doris activo.")
-        print(f"   - Cola: '{RABBITMQ_QUEUE}'")
         
         while True: 
             connection.process_data_events(time_limit=1)
