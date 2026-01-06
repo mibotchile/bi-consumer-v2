@@ -23,8 +23,20 @@ mibotchile - Jose Rivas
 2. python consumer/bd_voicebot_consumer.py
 
 #consumidores v2 doris
-1. python consumer/doris_mibotair_consumer.py
-2. python consumer/doris_voicebot_consumer.py
+1. python consumers/doris_mibotair_consumer.py
+2. python consumers/doris_voicebot_consumer.py
+3. python consumers/doris_mail_consumer.py
+
+# Ajustes de stream load (env)
+- DORIS_STREAM_LOAD_TIMEOUT: timeout de Doris (segundos)
+- DORIS_CONNECT_TIMEOUT, DORIS_READ_TIMEOUT: timeouts de red
+- DORIS_RETRY_TOTAL, DORIS_RETRY_BACKOFF, DORIS_RETRY_STATUSES: reintentos
+- DORIS_POOL_MAXSIZE, DORIS_FLUSH_WORKERS, DORIS_MAX_IN_FLIGHT: control de concurrencia
+- DORIS_INFLIGHT_WAIT_SEC: espera por cupo en vuelo
+- DORIS_ENABLE_GZIP: true/false para compresion
+- DORIS_MAX_FILTER_RATIO: max_filter_ratio header
+- DORIS_PAUSE_ON_ERROR_SEC: pausa cuando Doris falla
+- RABBITMQ_PREFETCH_MIBOTAIR / VOICEBOT / EMAIL: prefetch por consumidor
 
 #doris health check api
 1. python api.py

@@ -3,18 +3,16 @@ import sys
 import json
 import logging
 import time
-import base64
 import uuid
 import requests
 from datetime import datetime
 from logging.handlers import WatchedFileHandler, TimedRotatingFileHandler
-from requests.adapters import HTTPAdapter 
-from urllib3.util.retry import Retry 
 
 import pika
 from dotenv import load_dotenv
 import pytz
 
+from doris_stream_loader import DorisStreamLoader
 load_dotenv() 
  
 RABBITMQ_URL = os.getenv("RABBITMQ_URL")
@@ -35,6 +33,24 @@ AIM_API_URL = "https://apiaim.mibot.cl/v3/clients"
 TARGET_ORIGIN = os.getenv("TARGET_ORIGIN_EMAIL", "Email")
 BATCH_SIZE = int(os.getenv("BATCH_SIZE_EMAIL", 500))
 BATCH_MAX_SECONDS = int(os.getenv("BATCH_MAX_SECONDS_EMAIL", 5))
+RABBITMQ_PREFETCH = int(os.getenv("RABBITMQ_PREFETCH_EMAIL", str(BATCH_SIZE)))
+
+DORIS_STREAM_LOAD_TIMEOUT = int(os.getenv("DORIS_STREAM_LOAD_TIMEOUT", "60"))
+DORIS_CONNECT_TIMEOUT = float(os.getenv("DORIS_CONNECT_TIMEOUT", "3.05"))
+DORIS_READ_TIMEOUT = float(os.getenv("DORIS_READ_TIMEOUT", "60"))
+DORIS_RETRY_TOTAL = int(os.getenv("DORIS_RETRY_TOTAL", "5"))
+DORIS_RETRY_BACKOFF = float(os.getenv("DORIS_RETRY_BACKOFF", "0.5"))
+DORIS_RETRY_STATUSES = [
+    int(x)
+    for x in os.getenv("DORIS_RETRY_STATUSES", "408,425,429,500,502,503,504").split(",")
+]
+DORIS_POOL_MAXSIZE = int(os.getenv("DORIS_POOL_MAXSIZE", "10"))
+DORIS_FLUSH_WORKERS = int(os.getenv("DORIS_FLUSH_WORKERS", "2"))
+DORIS_MAX_IN_FLIGHT = int(os.getenv("DORIS_MAX_IN_FLIGHT", "4"))
+DORIS_INFLIGHT_WAIT_SEC = float(os.getenv("DORIS_INFLIGHT_WAIT_SEC", "2"))
+DORIS_ENABLE_GZIP = os.getenv("DORIS_ENABLE_GZIP", "false").lower() in ("1", "true", "yes")
+DORIS_MAX_FILTER_RATIO = os.getenv("DORIS_MAX_FILTER_RATIO") or None
+DORIS_PAUSE_ON_ERROR_SEC = float(os.getenv("DORIS_PAUSE_ON_ERROR_SEC", "0"))
 
 # --- LOGGERS ---
 def setup_logging():
@@ -158,112 +174,6 @@ class DateTimeEncoder(json.JSONEncoder):
             return obj.isoformat()
         return super(DateTimeEncoder, self).default(obj)
 
-class DorisStreamLoader:
-    def __init__(self, host, port, db, table, user, password, batch_size, max_seconds):
-        self.load_url = f"http://{host}:{port}/api/{db}/{table}/_stream_load"
-        self.user = user
-        self.password = password
-        self.batch_size = batch_size
-        self.max_seconds = max_seconds
-        self.buffer = []
-        self.last_flush_time = time.time()
-        
-        # --- SEGURIDAD NIVEL 3: Red Robusta ---
-        self.session = requests.Session()
-        # Reintentar 3 veces si hay error 500, 502, etc. Esperar 1s, 2s, 4s...
-        retries = Retry(total=3, backoff_factor=1, status_forcelist=[500, 502, 503, 504])
-        self.session.mount('http://', HTTPAdapter(max_retries=retries))
-        
-        # Auth Pre-calculada
-        auth_str = f"{self.user}:{self.password}"
-        b64_auth = base64.b64encode(auth_str.encode()).decode()
-
-        self.headers = {
-            "format": "json",
-            "strip_outer_array": "true",
-            "Expect": "100-continue",
-            "Authorization": f"Basic {b64_auth}",
-            "enable_proxy": "true" 
-        }
-
-    def add(self, record):
-        self.buffer.append(record)
-        if len(self.buffer) >= self.batch_size:
-            self.flush()
-
-    def flush_if_needed(self):
-        if self.buffer and (time.time() - self.last_flush_time > self.max_seconds):
-            self.flush()
-
-    def save_to_disk(self, json_payload, reason):
-        """
-        SEGURIDAD NIVEL 2: El Salvavidas.
-        Si Doris rechaza el dato, se guarda aquí para reinyectar luego.
-        """
-        try:
-            filename = f"failed_loads/email_{int(time.time())}_{uuid.uuid4()}.json"
-            os.makedirs("failed_loads", exist_ok=True)
-            with open(filename, "w", encoding="utf-8") as f:
-                f.write(json_payload)
-            logger.error(f"⚠️ FALLO DORIS. DATOS SALVADOS EN DISCO: {filename}. Razón: {reason}")
-            return True
-        except Exception as e:
-            logger.critical(f"🔥 FALLO TOTAL (Doris y Disco): {e}")
-            return False
-
-    def flush(self):
-        if not self.buffer: return True
-        
-        json_payload = ""
-        try:
-            json_payload = json.dumps(self.buffer, cls=DateTimeEncoder)
-            label = f"email_{int(time.time()*1000)}_{len(self.buffer)}"
-            headers = self.headers.copy()
-            headers["label"] = label
-
-            # Usamos session.put con timeout
-            response = self.session.put(
-                self.load_url, data=json_payload, headers=headers,
-                allow_redirects=False, timeout=60
-            )
-
-            final_response = response
-
-            # Manejo manual de redirección si enable_proxy es ignorado
-            if response.status_code == 307:
-                final_response = self.session.put(
-                    response.headers.get("Location"),
-                    data=json_payload, headers=headers,
-                    allow_redirects=True, timeout=60
-                )
-            
-            resp_dict = final_response.json()
-
-            if resp_dict.get("Status") == "Success":
-                logger.info(f"Doris Load OK. Label: {label}. Rows: {resp_dict.get('NumberLoadedRows')}")
-                self.buffer.clear()
-                self.last_flush_time = time.time()
-                return True
-            else:
-                # Falló Doris (lógica o tabla rota) -> Guardar en disco
-                error_msg = resp_dict.get('Message', 'Unknown Error')
-                self.save_to_disk(json_payload, error_msg)
-                
-                self.buffer.clear()
-                self.last_flush_time = time.time()
-                return True # Mentimos a RabbitMQ porque ya está en disco
-
-        except Exception as e:
-            # Falló Red/Python -> Guardar en disco
-            logger.error(f"Error de conexión/código: {e}")
-            self.save_to_disk(json_payload, str(e))
-            
-            self.buffer.clear()
-            self.last_flush_time = time.time()
-            return True # Mentimos a RabbitMQ porque ya está en disco
-            
-    def close(self):
-        self.flush()
 
 # --- CALLBACK DE RABBITMQ ---
 def create_callback(loader, project_cache):
@@ -366,7 +276,23 @@ def main():
         user=DORIS_USER,
         password=DORIS_PASSWORD,
         batch_size=BATCH_SIZE,
-        max_seconds=BATCH_MAX_SECONDS
+        max_seconds=BATCH_MAX_SECONDS,
+        encoder_cls=DateTimeEncoder,
+        logger=logger,
+        label_prefix="email",
+        stream_load_timeout=DORIS_STREAM_LOAD_TIMEOUT,
+        connect_timeout=DORIS_CONNECT_TIMEOUT,
+        read_timeout=DORIS_READ_TIMEOUT,
+        retry_total=DORIS_RETRY_TOTAL,
+        retry_backoff=DORIS_RETRY_BACKOFF,
+        retry_statuses=DORIS_RETRY_STATUSES,
+        pool_maxsize=DORIS_POOL_MAXSIZE,
+        flush_workers=DORIS_FLUSH_WORKERS,
+        max_in_flight=DORIS_MAX_IN_FLIGHT,
+        inflight_wait_sec=DORIS_INFLIGHT_WAIT_SEC,
+        enable_gzip=DORIS_ENABLE_GZIP,
+        max_filter_ratio=DORIS_MAX_FILTER_RATIO,
+        pause_on_error_sec=DORIS_PAUSE_ON_ERROR_SEC,
     )
     
     connection = None
@@ -374,7 +300,7 @@ def main():
         connection = pika.BlockingConnection(pika.URLParameters(RABBITMQ_URL))
         channel = connection.channel()
         channel.queue_declare(queue=RABBITMQ_QUEUE, durable=True)
-        channel.basic_qos(prefetch_count=BATCH_SIZE)
+        channel.basic_qos(prefetch_count=RABBITMQ_PREFETCH)
  
         on_message_callback = create_callback(loader, project_cache)
         
@@ -383,7 +309,10 @@ def main():
         logger.info(f"Consumidor Email Doris iniciado. Cola: {RABBITMQ_QUEUE}")
         print(f"\n✅ Consumidor EMAIL activo.")
         
-        while True: 
+        while True:
+            if loader.should_pause():
+                time.sleep(1)
+                continue
             connection.process_data_events(time_limit=1)
             loader.flush_if_needed()
 
